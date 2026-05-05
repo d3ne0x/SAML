@@ -1,11 +1,10 @@
 using System;
-using System.Collections.Specialized;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Web;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -199,10 +198,9 @@ internal sealed class SamlCaptureForm : Form
     private static string? TryExtractSamlResponse(string body)
     {
         var decodedBody = WebUtility.HtmlDecode(body);
-        var form = HttpUtility.ParseQueryString(decodedBody);
-        var samlResponse = FirstValue(form, "SAMLResponse");
+        var form = ParseFormEncodedBody(decodedBody);
 
-        if (!string.IsNullOrWhiteSpace(samlResponse))
+        if (form.TryGetValue("SAMLResponse", out var samlResponse) && !string.IsNullOrWhiteSpace(samlResponse))
         {
             return samlResponse.Trim();
         }
@@ -222,20 +220,27 @@ internal sealed class SamlCaptureForm : Form
 
         return string.IsNullOrWhiteSpace(rawValue)
             ? null
-            : WebUtility.UrlDecode(rawValue).Trim();
+            : WebUtility.UrlDecode(rawValue.Replace("+", "%2B")).Trim();
     }
 
-    private static string? FirstValue(NameValueCollection values, string key)
+    private static Dictionary<string, string> ParseFormEncodedBody(string body)
     {
-        foreach (var candidate in values.AllKeys)
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in body.Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (string.Equals(candidate, key, StringComparison.OrdinalIgnoreCase))
+            var separatorIndex = pair.IndexOf('=');
+            var rawKey = separatorIndex >= 0 ? pair[..separatorIndex] : pair;
+            var rawValue = separatorIndex >= 0 ? pair[(separatorIndex + 1)..] : string.Empty;
+            var key = WebUtility.UrlDecode(rawKey.Replace("+", " "));
+            var value = WebUtility.UrlDecode(rawValue.Replace("+", " "));
+
+            if (!string.IsNullOrWhiteSpace(key) && !values.ContainsKey(key))
             {
-                return values[candidate];
+                values[key] = value;
             }
         }
 
-        return null;
+        return values;
     }
 
     private void Debug(string message)
